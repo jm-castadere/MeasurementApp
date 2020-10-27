@@ -5,87 +5,95 @@ using System.Linq;
 
 namespace MeasurementApp
 {
+    //-Jeder Messwerttyp wird getrennt gesampled
+    //-Aus einem Intervall von 5 Minuten wird nur der letzte Wert eines Typs ausgewählt
+    //-Liegt der Wert genau auf dem Raster, zählt er zum aktuellen Intervall
+    //-Die Eingabewerte sind zeitlich nicht sortiert
+    //-Das Ergebnis des Samplings muss nach Zeit aufsteigend sortiert sein
+
     class Program
     {
-        static void Main(string[] args)
+
+        static void Main()
         {
+            //sample start date
+            DateTime startOfSampling = new DateTime(2017, 1, 3, 10, 0, 0);
+
+            Console.WriteLine("All measure for mapping------------------------------------");
+            //Show all measure record
             foreach (Measurement itemMeasure in FilListOfMeasures())
             {
-                Console.WriteLine($"All Measuren-> Time :{itemMeasure.measurementTime} Type :{itemMeasure.measurementType} Value :{itemMeasure.measurementValue}");
+                Console.WriteLine($"Time :{itemMeasure.measurementTime} Type :{itemMeasure.measurementType} Value :{itemMeasure.measurementValue}");
             }
-
-            Console.WriteLine("----------------------------------");           
             
-            //Start mapping and write to console
-            foreach (Measurement itemMeasure in MapMeasure(FilListOfMeasures(), new DateTime(2017, 1, 3, 10, 0, 0), 5))
+            //Version mapping for measure-typ selected
+            Console.WriteLine("V1- list for Type selected----------------------------------");
+            foreach (Measurement itemMeasure in Map(MeasureType.TEMP, FilListOfMeasures(), startOfSampling))
+            {
+                Console.WriteLine($"Time :{itemMeasure.measurementTime} Type :{itemMeasure.measurementType} Value :{itemMeasure.measurementValue}");
+            }
+            
+            //Version mapping for all measure-typ (auto)
+            Console.WriteLine("V2- For all Type contained in measure-list-----------------");
+            foreach (Measurement itemMeasure in MapAllMeasureType(FilListOfMeasures(), startOfSampling))
             {
                 Console.WriteLine($"Time :{itemMeasure.measurementTime} Type :{itemMeasure.measurementType} Value :{itemMeasure.measurementValue}");
             }
 
-
         }
 
+
         /// <summary>
-        /// Map all measure record and return measure-list found   
+        /// Map all measure record of measure-Type selected
         /// </summary>
-        /// <param name="measureList">Measure list to map</param>
-        /// <param name="startDateGrid">date of the grid or begins the mapping </param>
-        /// <param name="dateIntervalMinute">measured values interval in minute (startdate and startdate+intervalle) </param>
-        public static List<Measurement> MapMeasure(List<Measurement> measureList, DateTime startDateGrid, int dateIntervalMinute)
+        /// <param name="measurementType">measure typ filter</param>
+        /// <param name="measureList">measure list to map</param>
+        /// <param name="startOfSampling">date of the grid or begins the mapping</param>
+        /// <returns>measure-list for measure-Type selected</returns>
+        public static List<Measurement> Map(MeasureType measurementType, List<Measurement> measureList, DateTime startOfSampling)
         {
-            List<Measurement> measureReturned = new List<Measurement>();
-            DateTime dateGridReset = startDateGrid;
+            //Intervalle in Minute between each check
+            const int intervalInMinute = 5;
             bool isLoop = true;
+            List<Measurement> measureReturned = new List<Measurement>();
 
-
-            //for each Measure-Typ contained in Measuren-List
-            foreach (var itemTyp in ExtractListMeasureTyp(measureList))
+            do
             {
-                do
+                //Retrieve all measure of mesure-type 
+                var measureAllValueOfTyp = ExtractMeasureTyp(measureList, measurementType);
+
+                //retrieve last measure record  for measure type and between the dateGrid-From and dateGrid-To 
+                var measureFund = measureAllValueOfTyp.LastOrDefault(a => a.measurementTime > startOfSampling &&
+                                                       a.measurementTime <= startOfSampling.AddMinutes(intervalInMinute));
+                if (measureFund != null)
                 {
-                    //Retriev all Measuren of mesure-type 
-                    var measureAllValueOfTyp = ExtractMeasureTyp(measureList, itemTyp);
-
-                    //retrieve last measure record between the dateGrid-From and dateGrid-To 
-                    var measureFund = measureAllValueOfTyp.LastOrDefault(a => a.measurementTime > startDateGrid &&
-                                                           a.measurementTime <= startDateGrid.AddMinutes(dateIntervalMinute));
-                    if (measureFund != null)
+                    //set measure and add to measure-list returned
+                    Measurement recordFund = new Measurement
                     {
-                        //set Measure and add to measuren-list
-                        Measurement recordFund = new Measurement
-                        {
-                            measurementTime = startDateGrid.AddMinutes(dateIntervalMinute),
-                            measurementValue = measureFund.measurementValue,
-                            measurementType = measureFund.measurementType
-                        };
-                        measureReturned.Add(recordFund);
+                        measurementTime = startOfSampling.AddMinutes(intervalInMinute),
+                        measurementValue = measureFund.measurementValue,
+                        measurementType = measureFund.measurementType
+                    };
+                    measureReturned.Add(recordFund);
 
-                        //set next dategrid-from 
-                        startDateGrid = startDateGrid.AddMinutes(dateIntervalMinute);
+                    //set next dategrid-from 
+                    startOfSampling = startOfSampling.AddMinutes(intervalInMinute);
+                }
+                else
+                {
+                    //Set flag to stopt mapping
+                    isLoop = false;
+                }
+            } while (isLoop);
 
-                        //Set flag continue mapping for next measure-type
-                        isLoop = true;
-                    }
-                    else
-                    {
-                        //Reset start datefrid for next Measure Type
-                        startDateGrid = dateGridReset;
-                       
-                        //Set flag to stopt mapping
-                        isLoop = false;
-                    }
-                } while (isLoop);
-                
 
-            }
-            
             return measureReturned;
-
         }
 
 
+
         /// <summary>
-        /// Extract and return the measure-value list of the selected measure-type
+        /// Extract and return the measure-typ list of the selected measure-type
         /// </summary>
         /// <param name="measureList">Measure-list</param>
         /// <param name="measureType">Measure-type to select</param>
@@ -94,18 +102,40 @@ namespace MeasurementApp
         {
             if (measureList.Any())
             {
-                //select measuren record of measure-type filter and equal or to less than the dateGrid
+                //select measure record of measure-type filter and equal or to less than the dateGrid
                 return (IOrderedEnumerable<Measurement>)measureList.Where(a => a.measurementType == measureType)
                     .OrderBy(b => b.measurementTime);
             }
-
             return null;
-
         }
 
 
+        #region get the list of measures-typ automatically (Opional)
+        
         /// <summary>
-        /// Extract and return Measure-Typ list contained in Measure-list
+        /// Map all measure record of all measure-Type
+        /// </summary>
+        /// <param name="measureList">Measure list to map</param>
+        /// <param name="startOfSampling">date of the grid or begins the mapping</param>
+        /// <returns>measure list for all measure-typ contained in the measure-list</returns>
+        public static List<Measurement> MapAllMeasureType(List<Measurement> measureList, DateTime startOfSampling)
+        {
+            List<Measurement> measureReturned = new List<Measurement>();
+
+            //for each measure-Typ contained in measuren-List
+            foreach (var itemTyp in ExtractListMeasureTyp(measureList))
+            {
+                foreach (var itemMeasure in Map(itemTyp,measureList,startOfSampling))
+                {
+                    measureReturned.Add(itemMeasure);
+                }
+            }
+
+            return measureReturned;
+        }
+        
+        /// <summary>
+        /// return single measure-Typ list contained in the measure-list
         /// </summary>
         /// <param name="measureList">Measure-list</param>
         /// <returns>single Measure-typ list</returns>
@@ -113,28 +143,23 @@ namespace MeasurementApp
         {
             if (measureList.Any())
             {
-
                 List<MeasureType> valReturned = new List<MeasureType>();
 
                 foreach (var result in measureList.GroupBy(p => p.measurementType, (g) => new { TypeMeasure = g.measurementType }).ToList())
                 {
                     valReturned.Add(result.Key);
                 }
-
                 return valReturned.ToList();
-
             }
-
             return null;
-
         }
-        
+
+        #endregion
 
         
-
 
         /// <summary>
-        /// Filled sample measure
+        /// Filled measure sample
         /// </summary>
         /// <returns></returns>
         private static List<Measurement> FilListOfMeasures()
